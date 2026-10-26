@@ -1,5 +1,7 @@
 # RouteGuard · 可核验的骑行路书
 
+![核验报告](docs/images/screenshot.png)
+
 [![tests](https://github.com/huyuheng852/routeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/huyuheng852/routeguard/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](#环境要求)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
