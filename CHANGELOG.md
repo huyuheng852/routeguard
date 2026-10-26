@@ -3,6 +3,62 @@
 本项目版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 变更记录格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.1] - 2026-10-26
+
+修掉自动生成路线的三个错误，它们会让整份行程不可用。
+
+### 修复
+
+- **每天等长且超预算**：自动采样间距固定 120 km，路由后变 133 km，超过 109 km 日预算，
+  一天只能走一段，于是每天都被迫骑 133 km。现在采样间距 = min(用户值, 日预算 × 0.8)。
+- **自动采样点谎称有住宿**：采样点原本标成"县城"，报告里看着像沿途都有旅馆。
+  改为"待核实"，由住宿检索去查，查不到就明说。
+- **采样点命名**：武汉市–成都市 途中1 → 途经1，全局编号，不再嵌套。
+
+### 新增
+
+- **路线数据类型提示**：报告首行显示"真实路网（brouter:trekking），22/22 段"或
+  "路由服务不可用，全部为直线近似，爬升数据不可信"，避免用户看着 0 爬升不知原因。
+
+---
+## [0.7.0] - 2026-10-26
+
+引入多 agent 编排：中心 agent 派活，子 agent 各管一摊。
+
+### 新增
+
+- **`--crew` 编排模式**：中心 agent 只负责理解与汇总，实际工作分给 8 个子 agent——
+  地理编码（geo）、真实路由（route）、地形统计（terrain）、天气（weather）、
+  住宿（lodging）、补给（supply）、安全约束（safety）、自检（critic）。
+- **失败隔离**：子 agent 抛异常记为 FAIL，依赖它的下游自动 SKIP，编排继续完成；
+  `critic` 会核对逐日里程合计与总里程、骑行日计数、零里程日等内部一致性。
+- **Agent 执行记录**写入 `plan.md`，一眼看到每项结论是谁给的、是否降级。
+
+---
+## [0.6.0] - 2026-10-26
+
+需求解析从正则换成大模型：能听懂"想看海边和雨林、别爬太多坡"这种话。
+
+### 新增
+
+- **LLM 需求解析**（`intent.py`）：把整句话拆成结构化字段——起点、终点、途经点、
+  环线、日期、FTP、体重、每日里程、路线偏好、缺失项。
+  `plan` 配了 Key 就默认启用，`--no-llm` 可强制走规则。
+- **缺字段追问**：起点 / 终点 / 日期缺失时逐条对话确认；非交互场景给出可复制命令。
+- **字段规范化**：日期支持 `2027年1月`/`2027-1`/`2027/1/1`，数字带单位也能解析，
+  模型漏报的 missing 会被重新补齐。
+
+### 变更
+
+- 模型调用失败（超时、限流、返回非 JSON）一律降级到正则解析，不阻塞规划。
+- 解析出的地名仍经 OSM 地理编码核对，模型编造的地名会解析失败并明确报错。
+- **地名解析双通道**：Nominatim 超时自动切到 Photon（komoot 的 OSM 检索），
+  国内网络下从"解析失败"变成 1–2 秒出结果。
+- **知名线路给建议**：用户只说"海南岛东线"这类线路名时，模型给出常规起终点建议
+  （例：海口→三亚，并说明理由）；交互模式确认后采用，非交互模式先采用并打标提示。
+- **切段命名防嵌套**：真实路由后长腿被切开时，名称不再出现"海口市→海口市–三亚市 途中 途中"。
+
+---
 ## [0.5.0] - 2026-10-26
 
 架构调整：从"查表"改为"自己造路线"。内置走廊降级为**优先数据**，不再是唯一选项。
@@ -132,7 +188,10 @@
 
 ---
 
-[Unreleased]: https://github.com/huyuheng852/routeguard/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/huyuheng852/routeguard/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/huyuheng852/routeguard/releases/tag/v0.7.1
+[0.7.0]: https://github.com/huyuheng852/routeguard/releases/tag/v0.7.0
+[0.6.0]: https://github.com/huyuheng852/routeguard/releases/tag/v0.6.0
 [0.5.0]: https://github.com/huyuheng852/routeguard/releases/tag/v0.5.0
 [0.4.0]: https://github.com/huyuheng852/routeguard/releases/tag/v0.4.0
 [0.3.1]: https://github.com/huyuheng852/routeguard/releases/tag/v0.3.1

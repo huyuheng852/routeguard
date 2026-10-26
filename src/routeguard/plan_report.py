@@ -8,7 +8,26 @@ from typing import List
 from .planner import Itinerary
 
 KIND_LABEL = {"ride": "骑行", "rest": "休整"}
-SERVICE_LABEL = {"city": "地级市", "county": "县城", "town": "乡镇", "lodge": "酒店/客栈", "camp": "露营"}
+SERVICE_LABEL = {"city": "地级市", "county": "县城", "town": "乡镇", "lodge": "酒店/客栈", "camp": "待核实"}
+
+
+def _route_quality(it) -> str:
+    """一句话说明几何来自哪里，避免用户看到 0 爬升却不知道是路由失败。"""
+    legs = getattr(it, "legs", []) or []
+    if not legs:
+        return "走廊直线（未做真实路由）"
+    real = sum(1 for l in legs if l.provider not in ("corridor", "straight-fallback"))
+    if real == len(legs):
+        providers = sorted({l.provider for l in legs})
+        note = (
+            "；OSRM 不含高程，爬升未计入"
+            if all(p.startswith("osrm") for p in providers)
+            else ""
+        )
+        return f"真实路网（{', '.join(providers)}），{real}/{len(legs)} 段{note}"
+    if real:
+        return f"部分真实路网（{real}/{len(legs)} 段），其余为直线，里程与爬升偏低"
+    return "路由服务不可用，全部为直线近似，爬升数据不可信"
 
 
 def print_console(it: Itinerary) -> None:
@@ -19,6 +38,7 @@ def print_console(it: Itinerary) -> None:
     for k, v in it.profile_summary.items():
         print(f"  {k}：{v}")
     print("-" * 96)
+    print(f"路线数据：{_route_quality(it)}")
     print(f"总里程 {it.total_km:.0f} km｜累计爬升 {it.total_climb:.0f} m｜"
           f"骑行 {it.riding_days} 天｜休整 {it.rest_days} 天｜日历 {it.calendar_days} 天")
     print("-" * 96)
@@ -76,6 +96,7 @@ def render_markdown(it: Itinerary) -> str:
     lines.append(f"- 总里程：**{it.total_km:.0f} km**")
     lines.append(f"- 累计爬升：**{it.total_climb:.0f} m**（估算）")
     lines.append(f"- 骑行 {it.riding_days} 天 + 休整 {it.rest_days} 天 = 日历 **{it.calendar_days} 天**")
+    lines.append(f"- 路线数据：{_route_quality(it)}")
     lines.append("")
     lines.append("## 三、逐日行程")
     lines.append("")

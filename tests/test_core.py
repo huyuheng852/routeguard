@@ -513,6 +513,83 @@ def test_clarify_fills_missing_endpoints():
     assert notes, "澄清过程应留下记录"
 
 
+def test_intent_from_llm_normalizes_fields():
+    """LLM 返回的松散 JSON 要被规范化：日期、数字、列表、missing 兜底。"""
+    from routeguard.intent import extract_intent, normalize_date
+
+    class FakeLLM:
+        def chat_json(self, _system, _user, _temperature=0.0):
+            return {
+                "origin": "海口",
+                "destination": "海口",
+                "via": "文昌,万宁,三亚",
+                "loop": True,
+                "start_date": "2027年1月",
+                "ftp_w": "250",
+                "weight_kg": 70,
+                "preferences": ["海边", "雨林"],
+                "missing": [],
+                "notes": ["只说了年月，按 1 月 1 日处理"],
+            }
+
+    intent = extract_intent("骑行海南东线和热带雨林线", FakeLLM())
+    assert intent.source == "llm"
+    assert intent.start_date == "2027-01-01"
+    assert intent.via == ["文昌", "万宁", "三亚"]
+    assert intent.ftp_w == 250.0 and intent.weight_kg == 70.0
+    assert intent.loop is True
+    assert intent.missing == []
+    assert normalize_date("2027/3/5") == "2027-03-05"
+    assert normalize_date("瞎写") == ""
+
+
+def test_intent_falls_back_and_asks():
+    """模型不可用时退回规则；缺字段时通过对话补齐。"""
+    from routeguard.intent import extract_intent, fill_missing
+
+    class Broken:
+        def chat_json(self, *_a, **_k):
+            raise RuntimeError("model down")
+
+    intent = extract_intent("随便骑骑", Broken())
+    assert intent.source == "rules"
+    assert "origin" in intent.missing
+
+    def fake_ask(prompt: str) -> str:
+        if "出发" in prompt:
+            return "海口"
+        if "终点" in prompt:
+            return "三亚"
+        return "2027-01-01"
+
+    notes = fill_missing(intent, fake_ask)
+    assert intent.origin == "海口" and intent.destination == "三亚"
+    assert notes
+
+
+def test_orchestrator_degrades_and_skips_dependents():
+    """子 agent 崩溃不能拖垮整体；依赖失败的下游应被跳过。"""
+    from routeguard.crew import FAILED, OK, SKIPPED, Agent, AgentReport, Context, Orchestrator
+
+    class Boom(Agent):
+        name = "boom"
+
+        def run(self, ctx):
+            raise RuntimeError("子 agent 炸了")
+
+    class NeedsBoom(Agent):
+        name = "needs"
+        requires = ("boom",)
+
+        def run(self, ctx):
+            return AgentReport("needs", OK, "不该被执行")
+
+    reports = Orchestrator([Boom(), NeedsBoom()]).run(Context(brief=None, settings=None))
+    assert reports[0].status == FAILED
+    assert reports[0].summary.startswith("RuntimeError")
+    assert reports[1].status == SKIPPED
+
+
 if __name__ == "__main__":
     passed = 0
     failed = []

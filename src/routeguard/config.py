@@ -77,6 +77,8 @@ class Settings:
 
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     overpass_timeout: int = 25
+    amap_key: str = ""
+    tianditu_key: str = ""
     osm_enabled: bool = True
     osm_radius_m: int = 150
 
@@ -140,6 +142,8 @@ class Settings:
             llm_timeout=int(get("LLM_TIMEOUT", "90") or 90),
             overpass_url=get("OVERPASS_URL", "https://overpass-api.de/api/interpreter"),
             overpass_timeout=int(get("OVERPASS_TIMEOUT", "25") or 25),
+            amap_key=get("AMAP_KEY"),
+            tianditu_key=get("TIANDITU_KEY"),
             osm_enabled=(get("OSM_ENABLED", "1").lower() not in ("0", "false", "no")),
             osm_radius_m=int(get("OSM_RADIUS_M", "150") or 150),
             cache_dir=Path(get("ROUTE_GUARD_CACHE", str(PROJECT_ROOT / ".cache"))),

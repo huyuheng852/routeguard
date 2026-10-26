@@ -113,10 +113,14 @@ def split_long_legs(
             ele = int(sub[-1][2]) if sub[-1][2] is not None else 0
             if is_last:
                 name = leg.end.name
-            elif n == 2:
-                name = f"{leg.start.name}→{leg.end.name} 途中"
             else:
-                name = f"{leg.start.name}→{leg.end.name} 途中{k + 1}"
+                # 名字太长会把表格撑乱；嵌套的"途中"也要去掉
+                base = f"{leg.start.name.split('–')[0]}-{leg.end.name.split('–')[-1]}"
+                base = base.replace("途中", "").replace("  ", " ").strip(" -")
+                suffix = "途中" if n == 2 else f"途中{k + 1}"
+                name = f"{base} {suffix}"
+                if len(name) > 14:
+                    name = f"{base[:9]}… {suffix}"
             wp = Waypoint(
                 name=name,
                 lat=sub[-1][0],
@@ -263,6 +267,7 @@ def plan_itinerary(
     waypoints: Sequence[Waypoint],
     legs: Optional[Sequence[Leg]] = None,
     lodging_finder: Optional[object] = None,
+    split_legs: bool = True,
     max_walk_m: float = 6000.0,
 ) -> Itinerary:
     """legs 为空时用走廊直线；传入真实路由结果时按真实里程与爬升排程。
@@ -272,7 +277,7 @@ def plan_itinerary(
     legs = list(legs) if legs is not None else build_legs(waypoints)
     target = daily_target(brief)
     # 单腿普遍超过日预算时自动切段（切点标 camp，需自备露营装备）
-    legs, _split_count = split_long_legs(legs, target)
+    legs, _split_count = split_long_legs(legs, target) if split_legs else (legs, 0)
     warnings: List[str] = []
 
     days: List[DayPlan] = []

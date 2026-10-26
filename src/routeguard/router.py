@@ -164,6 +164,11 @@ class Router:
         # 否则 50+ 段每段都等一次超时，规划会卡到一个小时。
         self._fail_streak = {getattr(p, "name", str(i)): 0 for i, p in enumerate(self.providers)}
         self.disabled: set[str] = set()
+        # 缓存键必须带上引擎签名，否则换了引擎仍会复用旧结果（曾因此沿用 OSRM 的 1708 km）
+        sig = []
+        for pr in self.providers:
+            sig.append(f"{getattr(pr, 'name', '?')}:{getattr(pr, 'profile', '')}")
+        self.signature = "|".join(sig)
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -174,7 +179,7 @@ class Router:
     def _cache_path(self, a: Waypoint, b: Waypoint) -> Optional[Path]:
         if not self.cache_dir:
             return None
-        key = f"{a.name}-{b.name}-{a.lat:.4f}{a.lon:.4f}-{b.lat:.4f}{b.lon:.4f}"
+        key = f"{self.signature}|{a.name}-{b.name}-{a.lat:.4f}{a.lon:.4f}-{b.lat:.4f}{b.lon:.4f}"
         digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
         return self.cache_dir / f"leg_{digest}.json"
 
@@ -197,6 +202,13 @@ class Router:
                 continue
             try:
                 result = provider.route(a, b)
+                # 合理性闸门：绕行超过直线 3.5 倍，多半是路由在山区选了荒唐的绕路，
+                # 直接放大成几千公里。宁可退回直线，也不要一个 600 km 的单段。
+                great = haversine_km(a.lat, a.lon, b.lat, b.lon)
+                if great > 30 and result.distance_km > great * 3.5:
+                    self.last_provider = f"{name}绕行异常"
+                    self._fail_streak[name] = self._fail_streak.get(name, 0) + 1
+                    continue
                 self.stats["routed"] += 1
                 self.last_provider = result.provider
                 self._fail_streak[name] = 0

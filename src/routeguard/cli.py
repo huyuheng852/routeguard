@@ -124,41 +124,213 @@ def cmd_analyze(args) -> int:
     return 0
 
 
+def _make_finder(args, settings):
+    """优先用国内免费数据源（高德/天地图），没有 key 时退回 OSM。"""
+    from .sources.lodging import OverpassLodgingFinder
+    from .sources.lodging_cn import build_cn_finder
+
+    provider = getattr(args, "lodging_provider", "auto") or "auto"
+    if provider != "osm":
+        finder = build_cn_finder(provider, settings, settings.cache_dir / "lodging")
+        if finder is not None:
+            return finder
+        if provider in ("amap", "tianditu"):
+            print(f"[提示] 未配置 {provider} 的 key，已退回 OSM（覆盖较差）")
+    return OverpassLodgingFinder(
+        url=settings.overpass_url,
+        timeout=min(15, settings.overpass_timeout),
+        cache_dir=settings.cache_dir / "lodging",
+    )
+
+
+def _plan_direct(args, brief, places, settings, geocoder) -> int:
+    """最省事的路径：一次 OSRM 请求拿整条路线，按日切分，出报告。"""
+    from .plan_report import print_console, render_html
+    from .plan_report import render_markdown as render_itinerary
+    from .planner import daily_target
+    from .routegen import direct_legs
+
+    # BRouter bike profiles detour far less than OSRM-bike in China
+    # (measured Shanghai->Fuzhou: 1052 km vs 1698 km; real road ~950 km)
+    router = Router(
+        [BRouterClient(profile="fastbike"), BRouterClient(profile="trekking"), OSRMClient()],
+        cache_dir=settings.cache_dir / "routes",
+    )
+    print("正在请求整条路线（BRouter 优先，首次约 1 分钟）…")
+    waypoints, legs = direct_legs(router, places[0], places[-1], daily_target(brief), geocoder)
+    if not waypoints:
+        print("路由服务没有返回可用路线。")
+        return 2
+
+    brief.origin = places[0].name
+    brief.destination = places[-1].name
+    brief.corridor = "generated"
+
+    total = sum(l.km for l in legs)
+    print(f"整条路线 {total:.0f} km，切成 {len(legs)} 天（引擎：{legs[0].provider}）")
+
+    finder = None
+    if getattr(args, "lodging", "auto") != "off":
+        finder = _make_finder(args, settings)
+
+    it = plan_itinerary(brief, waypoints, legs, lodging_finder=finder, split_legs=False)
+    print()
+    print_console(it)
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "plan.md").write_text(render_itinerary(it), encoding="utf-8")
+    (out / "plan.html").write_text(render_html(it), encoding="utf-8")
+    write_gpx(out / "route.gpx", it, waypoints, it.legs)
+    if not getattr(args, "no_daily_gpx", False):
+        daily = write_daily_gpx(out / "daily", it, it.legs)
+        print(f"逐日 GPX：{out / 'daily'}（{len(daily)} 个文件）")
+    print(f"\n规划报告：{out / 'plan.md'}｜{out / 'plan.html'}")
+    return 0
+
+
+def _plan_with_crew(args, brief, places, settings) -> int:
+    """中心 agent 编排模式：子 agent 分头干活，最后汇总。"""
+    from .crew import (
+        Context,
+        CriticAgent,
+        GeoAgent,
+        LodgingAgent,
+        Orchestrator,
+        RouteAgent,
+        SafetyAgent,
+        SupplyAgent,
+        TerrainAgent,
+        WeatherAgent,
+        render_markdown as render_agents,
+        summarize,
+    )
+    from .plan_report import print_console, render_html
+    from .plan_report import render_markdown as render_itinerary
+    from .planner import plan_itinerary
+    from .sources.lodging import OverpassLodgingFinder
+
+    router = None
+    if getattr(args, "router", "auto") != "none":
+        router = Router(
+            [BRouterClient(), OSRMClient()], cache_dir=settings.cache_dir / "routes"
+        )
+    finder = None
+    if getattr(args, "lodging", "auto") != "off":
+        finder = _make_finder(args, settings)
+
+    ctx = Context(brief=brief, settings=settings, logger=lambda m: print(f"  {m}"))
+    ctx.artifacts["places"] = places
+    from .geocode import build_geocoder as _bg
+
+    ctx.artifacts["geocoder"] = _bg(settings.cache_dir / "geocode")
+
+    print("中心 agent 分派任务：")
+    from .planner import daily_target as _dt
+    _spacing = min(float(getattr(args, "spacing", 120) or 120), _dt(brief) * 0.8)
+    agents = [GeoAgent(None, spacing_km=_spacing)]
+    if router is not None:
+        agents.append(RouteAgent(router))
+    agents += [TerrainAgent(), WeatherAgent()]
+    reports = Orchestrator(agents, logger=ctx.logger).run(ctx)
+
+    if not ctx.waypoints:
+        print("子 agent 未能生成航点，流程中止。")
+        return 2
+
+    brief.corridor = "generated"
+    it = plan_itinerary(brief, ctx.waypoints, ctx.legs or None, lodging_finder=finder)
+    ctx.itinerary = it
+
+    print("结果核验：")
+    reports += Orchestrator(
+        [LodgingAgent(), SupplyAgent(finder), SafetyAgent(), CriticAgent()],
+        logger=ctx.logger,
+    ).run(ctx)
+
+    print()
+    print_console(it)
+    print(f"\n{summarize(reports)}")
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    md = render_itinerary(it)
+    md = md.replace(
+        "## 九、方法与局限", "\n".join(render_agents(reports)) + "\n\n## 九、方法与局限"
+    )
+    (out / "plan.md").write_text(md, encoding="utf-8")
+    (out / "plan.html").write_text(render_html(it), encoding="utf-8")
+    write_gpx(out / "route.gpx", it, ctx.waypoints, it.legs)
+    if not getattr(args, "no_daily_gpx", False):
+        daily = write_daily_gpx(out / "daily", it, it.legs)
+        print(f"逐日 GPX：{out / 'daily'}（{len(daily)} 个文件）")
+    print(f"\n规划报告：{out / 'plan.md'}｜{out / 'plan.html'}")
+    return 0
+
+
 def cmd_plan(args) -> int:
-    from .brief import parse_brief
-    from .clarify import clarify_plan, non_interactive_hint
+    from .clarify import non_interactive_hint
     from .corridor import CORRIDORS, waypoints_from_places
-    from .geocode import NominatimGeocoder, split_via
+    from .geocode import build_geocoder, split_via
+    from .intent import extract_intent, fill_missing, intent_to_brief
     from .plan_report import print_console, render_html, render_markdown
     from .planner import plan_itinerary
-    from .routegen import generate_waypoints, generated_summary
+    from .routegen import generate_waypoints, generated_summary, snap_waypoints
 
-    brief, issues = parse_brief(args.text)
+    settings = Settings.load()
+    use_llm = (not getattr(args, "no_llm", False)) and settings.llm_ready
+    llm_client = build_llm(settings) if use_llm else None
+    intent = extract_intent(args.text, llm_client)
+    if intent.source == "llm":
+        print("[理解] 由大模型解析需求")
+    elif use_llm:
+        print("[理解] 模型调用失败，已退回规则解析")
 
-    # 信息不足时先问人（交互终端才问，管道里不阻塞）
     interactive = sys.stdin.isatty() and not getattr(args, "no_ask", False)
-    ask = input if interactive else None
-    brief, via_from_dialog, notes = clarify_plan(brief, issues, ask)
-    via = getattr(args, "via", None) or via_from_dialog
+    notes: list[str] = []
+    if intent.missing and interactive:
+        notes = fill_missing(intent, input)
 
+    # 非交互场景：模型对知名线路给过建议时，先采用并明确标注，而不是直接失败
+    adopted: list[str] = []
+    if not interactive:
+        if not intent.origin and intent.suggested_origin:
+            intent.origin = intent.suggested_origin
+            adopted.append(f"起点用模型建议：{intent.suggested_origin}")
+        if not intent.destination and intent.suggested_destination:
+            intent.destination = intent.suggested_destination
+            adopted.append(f"终点用模型建议：{intent.suggested_destination}")
+        if adopted:
+            reason = f"（{intent.suggestion_reason}）" if intent.suggestion_reason else ""
+            print(f"[建议] 模型推测这条线路的常规起终点{reason}")
+            for a in adopted:
+                print(f"       {a}　如果不对，请加 --via 或写明「从 A 到 B」")
+
+    via = getattr(args, "via", None) or ",".join(intent.via) or ""
     via_names = split_via(via) if via else []
     if via_names:
-        brief.origin = brief.origin or via_names[0]
-        brief.destination = brief.destination or via_names[-1]
+        intent.origin = intent.origin or via_names[0]
+        intent.destination = intent.destination or via_names[-1]
 
-    blocking = [i for i in issues if "起点和终点" not in i]
-    if not brief.origin or not brief.destination:
-        blocking.append("还缺起点或终点")
+    brief = intent_to_brief(intent, args.text)
+
+    blocking = []
+    if not intent.origin:
+        blocking.append("缺起点")
+    if not intent.destination:
+        blocking.append("缺终点")
     if blocking:
         print("无法开始规划：")
         for i in blocking:
             print(f"  · {i}")
-        for tip in non_interactive_hint(brief, issues):
+        for tip in non_interactive_hint(brief, ["起点和终点"]):
             print(f"  → {tip}")
         return 2
 
     for n in notes:
         print(f"[澄清] {n}")
+    if intent.preferences:
+        print(f"[理解] 偏好：{'、'.join(intent.preferences)}")
 
     if args.corridor:
         brief.corridor = args.corridor
@@ -187,8 +359,20 @@ def cmd_plan(args) -> int:
         return 2
     else:
         settings = Settings.load()
-        geocoder = NominatimGeocoder(cache_dir=settings.cache_dir / "geocode")
+        geocoder = build_geocoder(cache_dir=settings.cache_dir / "geocode")
         queries = list(via_names) if via_names else [brief.origin, brief.destination]
+        densify = True
+
+        # 没给途经点时，先让模型给出沿途城市链；否则只能在大圆直线上撒点，
+        # 结果就是一条贯穿荒野的直线，看着不像真实路线。
+        if not via_names and llm_client is not None and getattr(args, "cities", False):
+            from .intent import suggest_route_cities
+
+            cities = suggest_route_cities(llm_client, brief.origin, brief.destination)
+            if cities:
+                print(f"[路线] 模型建议沿途经过：{'、'.join(cities)}")
+                queries = [brief.origin] + cities + [brief.destination]
+                densify = False  # 城市已足够密，不再插值
 
         def _bare(q: str) -> str:
             return q.split("@")[0].strip()
@@ -215,16 +399,33 @@ def cmd_plan(args) -> int:
         for p in places:
             print(f"  {p.name:<14} {p.lat:.4f}, {p.lon:.4f}")
 
+        if getattr(args, "crew", False):
+            return _plan_with_crew(args, brief, places, settings)
+
+        if (not via_names and not getattr(args, "cities", False)
+                and getattr(args, "router", "auto") != "none"
+                and len(places) >= 2):
+            return _plan_direct(args, brief, places, settings, geocoder)
+
+        from .planner import daily_target
+
+        # 采样间距跟着当日能力走，否则每个航点都超过日预算，
+        # 一天只能走一段，被迫排出"每天 133 km"这种假行程。
+        spacing = min(
+            float(getattr(args, "spacing", 120) or 120),
+            daily_target(brief) * 0.8,
+        )
         if len(places) >= 2:
-            waypoints = generate_waypoints(
-                places, spacing_km=float(getattr(args, "spacing", 120) or 120)
-            )
+            waypoints = generate_waypoints(places, spacing_km=spacing if densify else 1e9)
+            waypoints, snapped = snap_waypoints(waypoints, geocoder)
+            if snapped:
+                print(f"已把 {snapped} 个采样点吸附到最近城镇")
         else:
             waypoints = waypoints_from_places(places)
         brief.origin = places[0].name
         brief.destination = places[-1].name
         brief.corridor = "generated"
-        print(f"自动生成 {len(waypoints)} 个航点（间距约 {getattr(args, 'spacing', 120)} km）")
+        print(f"自动生成 {len(waypoints)} 个航点（采样间距约 {spacing:.0f} km）")
 
     legs = None
     router_mode = getattr(args, "router", "auto")
@@ -411,6 +612,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--start", default=None, help="覆盖出发日期 YYYY-MM-DD")
     p_plan.add_argument("--daily", type=float, default=None, help="覆盖每日目标里程")
     p_plan.add_argument("--spacing", type=float, default=120.0, help="自定义路线的采样间距（km）")
+    p_plan.add_argument("--cities", action="store_true", help="实验：让模型给出沿途城市链（尚未稳定）")
+    p_plan.add_argument("--crew", action="store_true", help="多 agent 编排：地理/路由/地形/天气/住宿/补给/风险/自检")
+    p_plan.add_argument(
+        "--lodging-provider",
+        choices=["auto", "amap", "tianditu", "osm"],
+        default="auto",
+        help="住宿数据源：auto=高德→天地图→OSM",
+    )
+    p_plan.add_argument("--no-llm", action="store_true", help="不用大模型解析需求，强制走规则")
+    p_plan.add_argument("--llm", action="store_true", help="强制使用大模型解析需求（未配置会提示）")
     p_plan.add_argument("--no-ask", action="store_true", help="不进入澄清对话，缺信息直接报错")
     p_plan.add_argument("--out", default=str(default_out("plan")))
     p_plan.add_argument("--gpx-out", default=None, help="GPX 输出路径（默认 <out>/route.gpx）")
@@ -432,6 +643,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("selftest", help="离线自检")
 
+    p_web = sub.add_parser("web", help="启动本地网页版（浏览器操作）")
+    p_web.add_argument("--port", type=int, default=8765)
+    p_web.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+
     p_cfg = sub.add_parser("config", help="查看识别到的模型配置")
     p_cfg.add_argument("--check", action="store_true", help="发一次真实请求验证 key")
     return parser
@@ -452,6 +667,9 @@ def main(argv=None) -> int:
         return cmd_analyze(args)
     if args.cmd == "selftest":
         return cmd_selftest(args)
+    if args.cmd == "web":
+        from .web import serve
+        return serve(port=args.port, open_browser=not args.no_browser)
     if args.cmd == "config":
         return cmd_config(args)
     if args.cmd == "plan":
