@@ -250,7 +250,7 @@ def plan_itinerary(
     legs = list(legs) if legs is not None else build_legs(waypoints)
     target = daily_target(brief)
     # 单腿普遍超过日预算时自动切段（切点标 camp，需自备露营装备）
-    legs, camp_stops = split_long_legs(legs, target)
+    legs, _split_count = split_long_legs(legs, target)
     warnings: List[str] = []
 
     days: List[DayPlan] = []

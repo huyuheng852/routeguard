@@ -18,4 +18,4 @@ out/
 
 # 数据（轨迹含个人位置信息，不入库）
 *.gpx
-!data/sample/*.gpx
+!src/routeguard/data/sample/*.gpx

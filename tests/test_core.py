@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+DATA = ROOT / "src" / "routeguard" / "data"
 
 from routeguard.consensus import SAFE_DEFAULT_RISK, adjudicate, validate_evidence  # noqa: E402
 from routeguard.claims import extract_claims  # noqa: E402
@@ -71,20 +72,20 @@ class _ConstCanopy:
 
 
 def test_tall_canopy_always_shaded():
-    pts = parse_gpx(ROOT / "data" / "sample" / "demo_route.gpx")
+    pts = parse_gpx(DATA / "sample" / "demo_route.gpx")
     prof = shadow_profile(pts[:5], _ConstCanopy(25.0), datetime(2026, 8, 15, 9, 0))
     assert prof["shaded_ratio"] == 1.0, prof
 
 
 def test_no_canopy_never_shaded():
-    pts = parse_gpx(ROOT / "data" / "sample" / "demo_route.gpx")
+    pts = parse_gpx(DATA / "sample" / "demo_route.gpx")
     prof = shadow_profile(pts[:5], _ConstCanopy(0.0), datetime(2026, 8, 15, 12, 0))
     assert prof["shaded_ratio"] == 0.0, prof
 
 
 def test_shadow_geometry_consistency():
     """45° 太阳高度角、20m 树，3m 处的点应当被遮住（3*tan45=3 <= 20）。"""
-    pts = parse_gpx(ROOT / "data" / "sample" / "demo_route.gpx")
+    pts = parse_gpx(DATA / "sample" / "demo_route.gpx")
     assert point_shaded(pts[0], 45.0, 180.0, _ConstCanopy(20.0)) is True
     assert point_shaded(pts[0], 45.0, 180.0, _ConstCanopy(0.0)) is False
 
@@ -156,7 +157,7 @@ def test_dropped_evidence_lowers_confidence():
 # --------------------------------------------------------------------------
 
 def test_pipeline_end_to_end():
-    gpx = ROOT / "data" / "sample" / "demo_route.gpx"
+    gpx = DATA / "sample" / "demo_route.gpx"
     with tempfile.TemporaryDirectory() as tmp:
         report = run_pipeline(gpx, WHEN, SyntheticProvider(), tmp)
         assert len(report.segments) >= 2
@@ -171,7 +172,7 @@ def test_pipeline_end_to_end():
 
 
 def test_segmentation_and_stats():
-    pts = parse_gpx(ROOT / "data" / "sample" / "demo_route.gpx")
+    pts = parse_gpx(DATA / "sample" / "demo_route.gpx")
     segs = segment_route(pts, segment_len_m=500)
     stats = route_stats(pts)
     total_seg = sum(s.length_m for s in segs)
@@ -184,7 +185,7 @@ def test_segmentation_and_stats():
 # 5. 断言核验（v2 主线）
 # --------------------------------------------------------------------------
 
-GUIDE = ROOT / "data" / "sample" / "route_guide.md"
+GUIDE = DATA / "sample" / "route_guide.md"
 
 
 def test_extract_claims():
@@ -198,7 +199,7 @@ def test_audit_end_to_end():
     """核验一条「故意写砸」的路书：三类典型问题都要被识别。"""
     with tempfile.TemporaryDirectory() as tmp:
         result = audit_route_guide(
-            ROOT / "data" / "sample" / "demo_route.gpx", GUIDE, WHEN, SyntheticProvider(), tmp
+            DATA / "sample" / "demo_route.gpx", GUIDE, WHEN, SyntheticProvider(), tmp
         )
         assert result["total"] >= 8
         assert (Path(tmp) / "route_audit.md").exists()
@@ -217,13 +218,13 @@ def test_audit_end_to_end():
 # 6. OSM 证据源与抽取器降级
 # --------------------------------------------------------------------------
 
-FIXTURE = ROOT / "data" / "fixtures" / "osm_sample.json"
+FIXTURE = DATA / "fixtures" / "osm_sample.json"
 
 
 def test_osm_fixture_contexts():
     from routeguard.sources.osm import OSMClient
 
-    segs = segment_route(parse_gpx(ROOT / "data" / "sample" / "demo_route.gpx"))
+    segs = segment_route(parse_gpx(DATA / "sample" / "demo_route.gpx"))
     ctx = OSMClient(fixture=FIXTURE).fetch(segs)
     assert len(ctx) == len(segs)
     assert any(v.surface == "gravel" for v in ctx.values()), [v.to_dict() for v in ctx.values()]
@@ -233,7 +234,7 @@ def test_osm_fixture_contexts():
 def test_osm_upgrades_unverified_to_judgement():
     from routeguard.sources.osm import OSMClient
 
-    gpx = ROOT / "data" / "sample" / "demo_route.gpx"
+    gpx = DATA / "sample" / "demo_route.gpx"
     with tempfile.TemporaryDirectory() as tmp:
         base = audit_route_guide(gpx, GUIDE, WHEN, SyntheticProvider(), tmp, osm=None)
         enriched = audit_route_guide(
@@ -259,7 +260,7 @@ def test_osm_unavailable_is_not_negative_evidence():
     from routeguard.claims import Claim, adjudicate_claim
     from routeguard.sources.osm import SegmentContext
 
-    seg = segment_route(parse_gpx(ROOT / "data" / "sample" / "demo_route.gpx"))[-1]
+    seg = segment_route(parse_gpx(DATA / "sample" / "demo_route.gpx"))[-1]
     claim = Claim(
         claim_id="C999",
         text="沿途有便利店可以补水",

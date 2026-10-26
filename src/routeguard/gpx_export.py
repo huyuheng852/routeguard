@@ -200,10 +200,17 @@ def build_gpx(
     )
     lines.append("  <metadata>")
     lines.append(f"    <name>{_escape(it.brief.origin)} → {_escape(it.brief.destination)}</name>")
-    routed = any(l.provider not in ("corridor", "straight-fallback") for l in legs)
+    used = [l for l in legs if l.provider not in ("corridor", "straight-fallback")]
+    routed = len(used) == len(legs) and bool(legs)
     if routed:
-        providers = sorted({l.provider for l in legs if l.provider not in ("corridor", "straight-fallback")})
+        providers = sorted({l.provider for l in used})
         desc_tail = f"几何来自真实路网（{', '.join(providers)}）。"
+    elif used:
+        providers = sorted({l.provider for l in used})
+        desc_tail = (
+            f"几何部分来自真实路网（{', '.join(providers)}，{len(used)}/{len(legs)} 段），"
+            "其余为直线近似，请勿直接用于导航。"
+        )
     else:
         desc_tail = "本文件是走廊折线（航点间直线插值），折线长度约为公路里程的 78%，仅作路线骨架。"
     lines.append(

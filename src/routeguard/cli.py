@@ -19,14 +19,14 @@ from .extractors import build_extractor
 from .gpx_export import write_daily_gpx, write_gpx
 from .indicators import SyntheticProvider
 from .llm import build_llm
+from .paths import default_out, sample_gpx, sample_guide
 from .pipeline import audit_route_guide, run_pipeline
 from .planner import plan_itinerary
 from .router import BRouterClient, OSRMClient, Router, build_routed_legs
 from .schema import RISK_LABELS
 from .sources.lodging import OverpassLodgingFinder
 from .sources.osm import OSMClient
-
-PKG_ROOT = Path(__file__).resolve().parents[2]  # routeguard/
+from . import __version__
 
 
 def _print_report(report) -> None:
@@ -89,6 +89,12 @@ def cmd_audit(args) -> int:
         )
 
     llm = build_llm(settings)
+    if args.llm and not settings.llm_ready:
+        print(
+            "[提示] 加了 --llm 但没有检测到可用的模型配置，本次请用规则抽取。\n"
+            "       配置方法见 README「配置 AI」，或先跑 `python -m routeguard config` 检查。",
+            file=sys.stderr,
+        )
     extractor = build_extractor(args.llm and settings.llm_ready, llm)
 
     result = audit_route_guide(
@@ -213,8 +219,15 @@ def cmd_plan(args) -> int:
         encoding="utf-8",
     )
     print(f"\n规划报告：{out / 'plan.md'}｜{out / 'plan.html'}")
-    routed = bool(legs) and any(l.provider not in ("corridor", "straight-fallback") for l in legs)
-    note = "真实路网几何" if routed else "走廊折线，导航前需 snap 到路网"
+    legs_used = list(it.legs)
+    total_legs = len(legs_used)
+    routed_legs = sum(1 for l in legs_used if l.provider not in ("corridor", "straight-fallback"))
+    if total_legs and routed_legs == total_legs:
+        note = "全部真实路网几何"
+    elif routed_legs:
+        note = f"{routed_legs}/{total_legs} 段真实路网，其余为直线近似"
+    else:
+        note = "走廊折线，导航前需 snap 到路网"
     print(f"GPX 轨迹：{gpx_path}（{note}）")
 
     if not getattr(args, "no_daily_gpx", False):
@@ -269,8 +282,8 @@ def cmd_selftest(args) -> int:
     print(f"配置：LLM={'就绪' if settings.llm_ready else '未配置'}｜OSM={'开' if settings.osm_enabled else '关'}")
     with tempfile.TemporaryDirectory() as tmp:
         result = audit_fn(
-            PKG_ROOT / "data" / "sample" / "demo_route.gpx",
-            PKG_ROOT / "data" / "sample" / "route_guide.md",
+            sample_gpx(),
+            sample_guide(),
             "2026-08-15",
             SyntheticProvider(seed="demo"),
             tmp,
@@ -283,6 +296,9 @@ def cmd_selftest(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser("routeguard", description="可核验的骑行路书")
+    parser.add_argument(
+        "--version", action="version", version=f"routeguard {__version__}"
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     def add_common(p):
@@ -290,9 +306,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--hour", type=int, default=9, help="计划出发小时（本地时）")
 
     p_audit = sub.add_parser("audit", help="核验一份路书")
-    p_audit.add_argument("--guide", default=str(PKG_ROOT / "data" / "sample" / "route_guide.md"))
-    p_audit.add_argument("--gpx", default=str(PKG_ROOT / "data" / "sample" / "demo_route.gpx"))
-    p_audit.add_argument("--out", default=str(PKG_ROOT / "out" / "audit"))
+    p_audit.add_argument("--guide", default=str(sample_guide()))
+    p_audit.add_argument("--gpx", default=str(sample_gpx()))
+    p_audit.add_argument("--out", default=str(default_out("audit")))
     p_audit.add_argument("--osm", dest="osm", action="store_true", default=True, help="启用 OSM 证据源（默认开）")
     p_audit.add_argument("--no-osm", dest="osm", action="store_false", help="关闭 OSM，纯离线")
     p_audit.add_argument("--llm", dest="llm", action="store_true", default=False, help="用 LLM 抽取断言")
@@ -300,11 +316,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_run = sub.add_parser("analyze", help="路段风险裁决")
     p_run.add_argument("--gpx", required=True)
-    p_run.add_argument("--out", default=str(PKG_ROOT / "out" / "run"))
+    p_run.add_argument("--out", default=str(default_out("run")))
     add_common(p_run)
 
     p_demo = sub.add_parser("demo", help="用示范 GPX 跑风险裁决")
-    p_demo.add_argument("--out", default=str(PKG_ROOT / "out" / "demo"))
+    p_demo.add_argument("--out", default=str(default_out("demo")))
     add_common(p_demo)
 
     p_plan = sub.add_parser("plan", help="从一句自然语言生成多日骑行规划")
@@ -312,7 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--corridor", default=None, choices=["central", "historic"])
     p_plan.add_argument("--start", default=None, help="覆盖出发日期 YYYY-MM-DD")
     p_plan.add_argument("--daily", type=float, default=None, help="覆盖每日目标里程")
-    p_plan.add_argument("--out", default=str(PKG_ROOT / "out" / "plan"))
+    p_plan.add_argument("--out", default=str(default_out("plan")))
     p_plan.add_argument("--gpx-out", default=None, help="GPX 输出路径（默认 <out>/route.gpx）")
     p_plan.add_argument(
         "--no-daily-gpx", action="store_true", help="不导出逐日 GPX（默认导出到 <out>/daily/）"
@@ -348,7 +364,7 @@ def main(argv=None) -> int:
     if args.cmd == "analyze":
         return cmd_analyze(args)
     if args.cmd == "demo":
-        args.gpx = str(PKG_ROOT / "data" / "sample" / "demo_route.gpx")
+        args.gpx = str(sample_gpx())
         return cmd_analyze(args)
     if args.cmd == "selftest":
         return cmd_selftest(args)

@@ -152,14 +152,24 @@ class Router:
         providers: Sequence[object],
         cache_dir: Optional[Path] = None,
         delay_s: float = 0.25,
+        max_consecutive_failures: int = 2,
     ) -> None:
         self.providers = list(providers)
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.delay_s = delay_s
+        self.max_fail = max_consecutive_failures
         self.stats = {"cache_hit": 0, "routed": 0, "fallback": 0}
         self.last_provider = ""
+        # 每个 provider 的连续失败计数；连续失败超过阈值就本次运行停用，
+        # 否则 50+ 段每段都等一次超时，规划会卡到一个小时。
+        self._fail_streak = {getattr(p, "name", str(i)): 0 for i, p in enumerate(self.providers)}
+        self.disabled: set[str] = set()
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def all_disabled(self) -> bool:
+        return bool(self.providers) and len(self.disabled) >= len(self.providers)
 
     def _cache_path(self, a: Waypoint, b: Waypoint) -> Optional[Path]:
         if not self.cache_dir:
@@ -182,10 +192,14 @@ class Router:
             )
 
         for provider in self.providers:
+            name = getattr(provider, "name", "?")
+            if name in self.disabled:
+                continue
             try:
                 result = provider.route(a, b)
                 self.stats["routed"] += 1
                 self.last_provider = result.provider
+                self._fail_streak[name] = 0
                 if cache:
                     cache.write_text(
                         json.dumps(
@@ -202,8 +216,11 @@ class Router:
                 if self.delay_s:
                     time.sleep(self.delay_s)
                 return result
-            except (urllib.error.URLError, TimeoutError, KeyError, ValueError, RoutingError) as exc:
-                self.last_provider = f"{getattr(provider, 'name', '?')}失败"
+            except (urllib.error.URLError, TimeoutError, KeyError, ValueError, RoutingError):
+                self.last_provider = f"{name}失败"
+                self._fail_streak[name] = self._fail_streak.get(name, 0) + 1
+                if self._fail_streak[name] >= self.max_fail:
+                    self.disabled.add(name)
                 continue
 
         # 全部失败：退回直线，并明确标注

@@ -1,7 +1,5 @@
 # RouteGuard · 可核验的骑行路书
 
-![核验报告](docs/images/screenshot.png)
-
 [![tests](https://github.com/huyuheng852/routeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/huyuheng852/routeguard/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](#环境要求)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -39,7 +37,7 @@ RouteGuard 做两件事：
 
 ```powershell
 # 1) 进目录
-cd routeguard          # 解压 release 包时改为 routeguard-v0.3.0
+cd routeguard          # 解压 release 包时改为 routeguard-v0.3.1
 
 # 2) 让 Python 找到包（Windows PowerShell）
 $env:PYTHONPATH = "$PWD\src"
@@ -73,12 +71,12 @@ python -m routeguard plan --text "我的FTP为250w，体重70kg，2027年6月从
 
 ### 方式 A：解压即用（推荐新手）
 
-1. 下载 Release 里的 `routeguard-v0.3.0.zip`
+1. 下载 Release 里的 `routeguard-v0.3.1.zip`
 2. 解压到任意目录（路径**不要有空格**最省事）
 3. 打开终端进入该目录：
 
 ```powershell
-cd routeguard-v0.3.0
+cd routeguard-v0.3.1
 $env:PYTHONPATH = "$PWD\src"
 python -m routeguard selftest
 ```
@@ -389,7 +387,8 @@ out/plan/
 3. **住宿只到城镇级**：判断"有没有县城/酒店"，不判断"有没有空房"；
 4. **大陆 OSM 覆盖不全**：查不到住宿 ≠ 没有，报告会列出待确认清单；
 5. **只内置两条走廊**：瑞金—延安（历史 / 纵贯），换起终点会明确拒绝而不是瞎编；
-6. **`pip install routeguard` 尚未支持**：`data/` 没打进 wheel，目前请用 `pip install -e .`。
+6. **示例数据是合成的**：`audit` 用的环境指标（地表温度、NDVI、冠层高度）由 `SyntheticProvider` 生成，
+   报告里标注为 `synthetic:v1`，不是真实卫星数据；接入真实数据源需要自备凭证。
 
 ---
 

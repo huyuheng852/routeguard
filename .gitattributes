@@ -1,0 +1,15 @@
+# 统一换行符：仓库内一律 LF，检出时按平台转换
+* text=auto eol=lf
+
+# 这些文件在 Windows 上不要转换，避免整文件 diff
+*.py   text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.json text eol=lf
+*.gpx  text eol=lf
+
+# 二进制
+*.zip  binary
+*.png  binary
+*.jpg  binary

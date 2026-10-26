@@ -3,7 +3,7 @@
 骨架版本。数据层用合成数据，算法层已可运行、可单测、可复现。
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from .schema import (  # noqa: F401
     Evidence,

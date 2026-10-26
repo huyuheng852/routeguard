@@ -34,9 +34,11 @@ def _parse_env_file(path: Path) -> Dict[str, str]:
 
 
 # 厂商预设：变量名 → (base_url, 默认模型)
+# 注意：字典顺序即优先级。国内用户居多，DeepSeek 放第一位；
+# README 的表格顺序必须与此保持一致。
 PROVIDERS: Dict[str, Tuple[Tuple[str, ...], str, str]] = {
-    "openai": (("OPENAI_API_KEY",), "https://api.openai.com/v1", "gpt-4o-mini"),
     "deepseek": (("DEEPSEEK_API_KEY",), "https://api.deepseek.com/v1", "deepseek-chat"),
+    "openai": (("OPENAI_API_KEY",), "https://api.openai.com/v1", "gpt-4o-mini"),
     "moonshot": (("MOONSHOT_API_KEY",), "https://api.moonshot.cn/v1", "moonshot-v1-8k"),
     "dashscope": (
         ("DASHSCOPE_API_KEY", "QWEN_API_KEY"),

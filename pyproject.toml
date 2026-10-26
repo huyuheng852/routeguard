@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "routeguard"
-version = "0.3.0"
+version = "0.3.1"
 description = "可核验的骑行路书：断言级证据绑定与三态核验"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,6 +21,14 @@ routeguard = "routeguard.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# 示例数据随包分发，否则 pip 安装后 `audit`/`selftest` 找不到文件
+[tool.setuptools.package-data]
+routeguard = [
+    "data/sample/*.gpx",
+    "data/sample/*.md",
+    "data/fixtures/*.json",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

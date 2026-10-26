@@ -3,6 +3,31 @@
 本项目版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 变更记录格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.3.1] - 2026-10-26
+
+修掉三个会让用户踩坑的问题，并让 `pip install` 真正可用。
+
+### 修复
+
+- **合成数据不再冒充真实卫星源**：`SyntheticProvider` 生成的证据此前标为
+  `sentinel-2:L2A` / `meta:canopy-height:1m`，报告里看起来像真实遥感反演。
+  现统一标为 `synthetic:v1`，目标数据源写进备注——出处本身不能是假的。
+- **路由服务加熔断**：BRouter / OSRM 连续失败 2 次即本次运行停用。
+  此前 55 段每段都要等 40s + 30s 超时，网络不通时规划会卡将近一小时。
+- **`pip install routeguard` 可用**：示例数据移入 `src/routeguard/data/` 并随包分发，
+  安装后可在任意目录运行 `routeguard audit`。
+- **GPX 几何标注按比例**：此前只要有一段路由成功就标"真实路网几何"，
+  现显示 `47/55 段真实路网，其余为直线近似`。
+- **`--llm` 无 key 时明确提示**，不再静默退回规则抽取。
+
+### 变更
+
+- 厂商识别优先级改为 DeepSeek 优先，与 README 表格顺序一致。
+- 新增 `--version`。
+- 新增 `.gitattributes`，统一 LF 换行，避免 Windows 提交产生整文件 diff。
+- 清理重构后未使用的变量。
+
+---
 ## [0.3.0] - 2026-10-26
 
 **首个公开版本。** 从"核验路书"扩展到"规划路线"，并补齐了真实路网与住宿检索。
@@ -69,5 +94,6 @@
 
 ---
 
-[Unreleased]: https://github.com/huyuheng852/routeguard/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/huyuheng852/routeguard/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/huyuheng852/routeguard/releases/tag/v0.3.1
 [0.3.0]: https://github.com/huyuheng852/routeguard/releases/tag/v0.3.0
