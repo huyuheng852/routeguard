@@ -1,0 +1,58 @@
+{
+  "version": 0.6,
+  "generator": "routeguard-fixture",
+  "elements": [
+    {
+      "type": "way",
+      "id": 1001,
+      "center": { "lat": 40.0208, "lon": 116.3855 },
+      "tags": { "highway": "secondary", "surface": "asphalt", "name": "科荟路" }
+    },
+    {
+      "type": "way",
+      "id": 1002,
+      "center": { "lat": 40.0214, "lon": 116.3910 },
+      "tags": { "highway": "residential", "surface": "asphalt" }
+    },
+    {
+      "type": "way",
+      "id": 1003,
+      "center": { "lat": 40.0225, "lon": 116.3965 },
+      "tags": { "highway": "residential", "surface": "gravel" }
+    },
+    {
+      "type": "way",
+      "id": 1004,
+      "center": { "lat": 40.0229, "lon": 116.3990 },
+      "tags": { "highway": "secondary", "tunnel": "yes" }
+    },
+    {
+      "type": "node",
+      "id": 2001,
+      "lat": 40.02145,
+      "lon": 116.39105,
+      "tags": { "shop": "convenience", "name": "便利蜂" }
+    },
+    {
+      "type": "node",
+      "id": 2003,
+      "lat": 40.02095,
+      "lon": 116.38610,
+      "tags": { "shop": "supermarket", "name": "物美" }
+    },
+    {
+      "type": "node",
+      "id": 2004,
+      "lat": 40.02155,
+      "lon": 116.39150,
+      "tags": { "shop": "convenience", "name": "7-11" }
+    },
+    {
+      "type": "node",
+      "id": 2002,
+      "lat": 40.02248,
+      "lon": 116.39655,
+      "tags": { "amenity": "bicycle_repair_station" }
+    }
+  ]
+}

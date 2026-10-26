@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="routeguard-demo" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>奥森—温榆河 示范线路</name>
+    <desc>骨架阶段使用的示范 GPX，仅用于跑通链路，非真实骑行数据</desc>
+  </metadata>
+  <trk>
+    <name>demo_route</name>
+    <trkseg>
+      <trkpt lat="40.02000" lon="116.38000"><ele>42.0</ele></trkpt>
+      <trkpt lat="40.02010" lon="116.38070"><ele>42.4</ele></trkpt>
+      <trkpt lat="40.02022" lon="116.38140"><ele>43.1</ele></trkpt>
+      <trkpt lat="40.02031" lon="116.38210"><ele>44.0</ele></trkpt>
+      <trkpt lat="40.02040" lon="116.38280"><ele>45.2</ele></trkpt>
+      <trkpt lat="40.02052" lon="116.38350"><ele>46.8</ele></trkpt>
+      <trkpt lat="40.02061" lon="116.38420"><ele>48.6</ele></trkpt>
+      <trkpt lat="40.02070" lon="116.38490"><ele>50.5</ele></trkpt>
+      <trkpt lat="40.02082" lon="116.38560"><ele>52.3</ele></trkpt>
+      <trkpt lat="40.02091" lon="116.38630"><ele>53.9</ele></trkpt>
+      <trkpt lat="40.02100" lon="116.38700"><ele>55.2</ele></trkpt>
+      <trkpt lat="40.02112" lon="116.38770"><ele>56.1</ele></trkpt>
+      <trkpt lat="40.02121" lon="116.38840"><ele>56.6</ele></trkpt>
+      <trkpt lat="40.02130" lon="116.38910"><ele>56.8</ele></trkpt>
+      <trkpt lat="40.02142" lon="116.38980"><ele>56.5</ele></trkpt>
+      <trkpt lat="40.02151" lon="116.39050"><ele>55.9</ele></trkpt>
+      <trkpt lat="40.02160" lon="116.39120"><ele>55.0</ele></trkpt>
+      <trkpt lat="40.02172" lon="116.39190"><ele>53.8</ele></trkpt>
+      <trkpt lat="40.02181" lon="116.39260"><ele>52.4</ele></trkpt>
+      <trkpt lat="40.02190" lon="116.39330"><ele>50.9</ele></trkpt>
+      <trkpt lat="40.02202" lon="116.39400"><ele>49.3</ele></trkpt>
+      <trkpt lat="40.02211" lon="116.39470"><ele>47.8</ele></trkpt>
+      <trkpt lat="40.02220" lon="116.39540"><ele>46.5</ele></trkpt>
+      <trkpt lat="40.02232" lon="116.39610"><ele>45.4</ele></trkpt>
+      <trkpt lat="40.02241" lon="116.39680"><ele>44.6</ele></trkpt>
+      <trkpt lat="40.02250" lon="116.39750"><ele>44.0</ele></trkpt>
+      <trkpt lat="40.02262" lon="116.39820"><ele>43.6</ele></trkpt>
+      <trkpt lat="40.02271" lon="116.39890"><ele>43.2</ele></trkpt>
+      <trkpt lat="40.02280" lon="116.39960"><ele>42.8</ele></trkpt>
+      <trkpt lat="40.02292" lon="116.40030"><ele>42.4</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>
