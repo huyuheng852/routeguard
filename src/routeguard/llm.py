@@ -17,6 +17,38 @@ import urllib.request
 from typing import Any, Dict, List, Optional, Protocol
 
 
+def _extract_first_json(text: str):
+    """从模型输出里捞出第一个完整的 JSON 对象（容忍前后多余文字）。"""
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                try:
+                    return json.loads(text[start : i + 1])
+                except json.JSONDecodeError:
+                    start = -1
+                    depth = 0
+    return None
+
+
 class LLMError(RuntimeError):
     """模型调用失败或返回内容无法解析为 JSON。"""
 
@@ -43,6 +75,9 @@ def extract_json(raw: str) -> Dict[str, Any]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
+        salvaged = _extract_first_json(text)
+        if salvaged is not None:
+            return salvaged
         raise LLMError(f"模型返回不是合法 JSON：{exc}") from exc
     if not isinstance(data, dict):
         raise LLMError("模型返回的 JSON 根节点不是对象")

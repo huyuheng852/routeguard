@@ -12,6 +12,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from .audit import summarize
 from .claims import STATUS_ICONS
@@ -124,6 +125,100 @@ def cmd_analyze(args) -> int:
     return 0
 
 
+def cmd_agent(args) -> int:
+    """harness 模式：模型自己选工具、调技能、读记忆。"""
+    from .geocode import build_geocoder
+    from .harness import Memory, SkillLibrary, default_tools, run_agent
+    from .llm import build_llm
+    from .router import BRouterClient, OSRMClient, Router
+    from .sources.lodging import OverpassLodgingFinder
+
+    settings = Settings.load()
+    if not settings.llm_ready:
+        print("agent 模式需要大模型：请先配置 DEEPSEEK_API_KEY 等，或运行 `routeguard config --check`。")
+        return 2
+
+    geocoder = build_geocoder(settings.cache_dir / "geocode")
+    router = Router(
+        [BRouterClient(profile="fastbike"), OSRMClient()],
+        cache_dir=settings.cache_dir / "routes",
+    )
+    finder = _make_finder(args, settings)
+    tools = default_tools(settings, geocoder=geocoder, router=router, lodging=finder)
+    skills = SkillLibrary()
+    memory = Memory()
+
+    print(f"工具 {len(tools.names())} 个：{', '.join(tools.names())}")
+    print(f"技能 {len(skills.skills)} 个：{', '.join(s.name for s in skills.skills)}")
+    trace = run_agent(args.text, build_llm(settings), tools, skills, memory)
+
+    for step in trace.steps:
+        if "tool" in step:
+            ok = step["result"].get("ok")
+            print(f"  [{step['step'] + 1}] {step.get('thought', '')[:40]} → {step['tool']} "
+                  f"({'OK' if ok else 'FAIL'})")
+        elif "error" in step:
+            print(f"  [{step.get('step', 0) + 1}] 出错：{step['error'][:120]}")
+            if "raw" in step:
+                print(f"       模型原始输出：{str(step['raw'])[:160]}")
+        elif "final" in step:
+            print(f"  [{step['step'] + 1}] 结论")
+
+    if trace.used_skills:
+        print(f"命中技能：{', '.join(trace.used_skills)}")
+    if not trace.final:
+        print("agent 没有给出结论，可用 `plan` 走确定性流程。")
+        return 2
+
+    origin = trace.final.get("origin")
+    destination = trace.final.get("destination")
+    print(f"\n结论：{origin} → {destination}")
+    if trace.final.get("summary"):
+        print(trace.final["summary"])
+
+    if origin and destination:
+        memory.remember("last_origin", origin)
+        memory.remember("last_destination", destination)
+        print("\n接着用确定性流程出具体行程：")
+        # 复用 agent 已经算好的路线，避免再请求一次（也避免第二次失败）
+        from . import harness
+
+        cached = dict(harness.LAST_ROUTE or {})
+        if cached.get("legs") and cached.get("waypoints"):
+            print("复用 agent 已算出的路线，不再重复请求。")
+            from .brief import parse_brief
+
+            brief2, _ = parse_brief(args.text)
+            brief2.origin = cached.get("start") or brief2.origin
+            brief2.destination = cached.get("end") or brief2.destination
+            brief2.start_date = brief2.start_date or ""
+            return _finish_from_legs(
+                args, brief2, cached["waypoints"], cached["legs"], Settings.load()
+            )
+
+        args2 = SimpleNamespace(
+            text=f"从{origin}到{destination}",
+            corridor=None,
+            start=None,
+            daily=None,
+            out=args.out,
+            gpx_out=None,
+            router=getattr(args, "router", "auto"),
+            lodging=getattr(args, "lodging", "auto"),
+            lodging_provider=getattr(args, "lodging_provider", "auto"),
+            no_daily_gpx=getattr(args, "no_daily_gpx", False),
+            spacing=getattr(args, "spacing", 120.0),
+            no_ask=True,
+            crew=False,
+            cities=False,
+            no_llm=False,
+            llm=False,
+            via=None,
+        )
+        return cmd_plan(args2)
+    return 0
+
+
 def _make_finder(args, settings):
     """优先用国内免费数据源（高德/天地图），没有 key 时退回 OSM。"""
     from .sources.lodging import OverpassLodgingFinder
@@ -135,12 +230,51 @@ def _make_finder(args, settings):
         if finder is not None:
             return finder
         if provider in ("amap", "tianditu"):
-            print(f"[提示] 未配置 {provider} 的 key，已退回 OSM（覆盖较差）")
+            print(f"[提示] 未配置 {provider} 的 key，改用 Photon（无需 key，OSM 数据）")
+
+    # 没有商业 key 时用 Photon：比 Overpass 快得多
+    from .sources.elevation import PhotonLodgingFinder
+
+    photon = PhotonLodgingFinder(cache_dir=settings.cache_dir / "lodging")
+    print("住宿数据源：Photon（OSM，无需 key）")
+    return photon
+
+
+def _overpass_finder(settings):
+    from .sources.lodging import OverpassLodgingFinder
+
     return OverpassLodgingFinder(
         url=settings.overpass_url,
         timeout=min(15, settings.overpass_timeout),
         cache_dir=settings.cache_dir / "lodging",
     )
+
+
+def _finish_from_legs(args, brief, waypoints, legs, settings) -> int:
+    """已有航点与几何时，直接出报告，不再请求路由服务。"""
+    from .plan_report import print_console, render_html
+    from .plan_report import render_markdown as render_itinerary
+    from .planner import plan_itinerary
+
+    finder = None
+    if getattr(args, "lodging", "auto") != "off":
+        finder = _make_finder(args, settings)
+
+    brief.corridor = "generated"
+    it = plan_itinerary(brief, waypoints, legs, lodging_finder=finder, split_legs=False)
+    print()
+    print_console(it)
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "plan.md").write_text(render_itinerary(it), encoding="utf-8")
+    (out / "plan.html").write_text(render_html(it), encoding="utf-8")
+    write_gpx(out / "route.gpx", it, waypoints, it.legs)
+    if not getattr(args, "no_daily_gpx", False):
+        daily = write_daily_gpx(out / "daily", it, it.legs)
+        print(f"逐日 GPX：{out / 'daily'}（{len(daily)} 个文件）")
+    print(f"\n规划报告：{out / 'plan.md'}｜{out / 'plan.html'}")
+    return 0
 
 
 def _plan_direct(args, brief, places, settings, geocoder) -> int:
@@ -158,6 +292,11 @@ def _plan_direct(args, brief, places, settings, geocoder) -> int:
     )
     print("正在请求整条路线（BRouter 优先，首次约 1 分钟）…")
     waypoints, legs = direct_legs(router, places[0], places[-1], daily_target(brief), geocoder)
+    if legs and sum(l.climb_m for l in legs) == 0:
+        from .routegen import fill_missing_elevation
+
+        legs, filled = fill_missing_elevation(legs, settings.cache_dir / "elevation")
+        print(f"路由未返回高程，已用 OpenTopoData 补齐 {filled} 个点")
     if not waypoints:
         print("路由服务没有返回可用路线。")
         return 2
@@ -647,6 +786,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_web.add_argument("--port", type=int, default=8765)
     p_web.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
 
+    p_ag = sub.add_parser("agent", help="harness 模式：agent 自主调用工具与技能")
+    p_ag.add_argument("--text", required=True)
+    p_ag.add_argument("--lodging-provider", choices=["auto", "amap", "tianditu", "osm"], default="auto")
+    p_ag.add_argument("--lodging", choices=["auto", "off"], default="auto")
+    p_ag.add_argument("--router", choices=["auto", "brouter", "osrm", "none"], default="auto")
+    p_ag.add_argument("--spacing", type=float, default=120.0)
+    p_ag.add_argument("--no-daily-gpx", action="store_true")
+    p_ag.add_argument("--out", default=str(default_out("plan")))
     p_cfg = sub.add_parser("config", help="查看识别到的模型配置")
     p_cfg.add_argument("--check", action="store_true", help="发一次真实请求验证 key")
     return parser
@@ -667,6 +814,8 @@ def main(argv=None) -> int:
         return cmd_analyze(args)
     if args.cmd == "selftest":
         return cmd_selftest(args)
+    if args.cmd == "agent":
+        return cmd_agent(args)
     if args.cmd == "web":
         from .web import serve
         return serve(port=args.port, open_browser=not args.no_browser)

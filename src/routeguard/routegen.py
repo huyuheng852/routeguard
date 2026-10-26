@@ -102,6 +102,13 @@ def _pick_overnight(points, idx, geocoder, window_km=(8.0, 20.0), budget=None):
     return None if best is None else (best[1], best[2], _rank(best[2].addresstype))
 
 
+def _safe_elev(value) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _nearest_idx(cum, dist):
     """累计距离数组里最接近 dist 的下标。"""
     lo, hi = 0, len(cum) - 1
@@ -116,6 +123,31 @@ def _nearest_idx(cum, dist):
     return lo
 
 
+def fill_missing_elevation(legs, cache_dir=None):
+    """路由没给高程时，用 OpenTopoData 补上，保证爬升数据可信。
+
+    返回 (新 legs, 补了多少个点)。
+    """
+    from dataclasses import replace
+
+    from .sources.elevation import OpenTopoElevation
+
+    if not legs or sum(l.climb_m for l in legs) > 0:
+        return legs, 0
+
+    reader = OpenTopoElevation(cache_dir=cache_dir)
+    out, filled = [], 0
+    for leg in legs:
+        pts = reader.fill(leg.points)
+        got = sum(1 for p in pts if p[2] is not None)
+        if got > filled:
+            filled = got
+        out.append(replace(leg, points=pts, climb_m=OpenTopoElevation.climb(pts)))
+    if reader.last_error and filled == 0:
+        return legs, 0
+    return out, filled
+
+
 def direct_legs(router, start, end, daily_km: float, geocoder=None):
     """一次请求整条 A→B，再按日预算切分。
 
@@ -125,6 +157,12 @@ def direct_legs(router, start, end, daily_km: float, geocoder=None):
     from .corridor import Leg
 
     route = router.route(start, end)
+    # 强制真实路网：拿不到就报错，绝不静默退回直线
+    if getattr(route, "provider", "") == "straight-fallback":
+        raise RuntimeError(
+            "路由服务不可用：BRouter 与 OSRM 都没返回真实路线。\\n"
+            "不会用直线冒充路线——请检查网络后重试，或显式使用 --router none（仅里程参考）。"
+        )
     pts = list(route.points)
     if len(pts) < 2:
         return [], []
@@ -189,7 +227,7 @@ def direct_legs(router, start, end, daily_km: float, geocoder=None):
         service="city",
         climb_from_prev_m=0,
         note="起点",
-        elev_m=int(pts[0][2]) if pts[0][2] is not None else 0,
+        elev_m=_safe_elev(pts[0][2]),
         terrain="rolling",
     )
     prev_wp, prev_idx = start_wp, 0
@@ -205,7 +243,7 @@ def direct_legs(router, start, end, daily_km: float, geocoder=None):
             service=service,
             climb_from_prev_m=0,
             note="终点" if idx >= len(pts) - 1 else f"按行政等级选取（{service}）",
-            elev_m=int(chunk[-1][2]) if chunk[-1][2] is not None else 0,
+            elev_m=_safe_elev(chunk[-1][2]),
             terrain="rolling",
         )
         km = sum(haversine_km(a[0], a[1], b[0], b[1]) for a, b in zip(chunk, chunk[1:]))

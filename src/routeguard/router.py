@@ -73,7 +73,7 @@ class BRouterClient:
         self,
         base_url: str = "https://brouter.de/brouter",
         profile: str = "trekking",
-        timeout: int = 40,
+        timeout: int = 150,
     ) -> None:
         self.base_url = base_url
         self.profile = profile
@@ -117,7 +117,7 @@ class OSRMClient:
     def __init__(
         self,
         base_url: str = "https://routing.openstreetmap.de/routed-bike",
-        timeout: int = 30,
+        timeout: int = 90,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout

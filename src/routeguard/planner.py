@@ -67,6 +67,26 @@ class Itinerary:
     profile_summary: dict = field(default_factory=dict)
 
 
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_month(start_date) -> int:
+    """从 YYYY-MM-DD 里取月份；缺失或非法时退回 7 月（中性季节）。
+
+    agent 交接过来的行程可能没有日期，直接 int(start_date[5:7]) 会抛
+    ValueError: invalid literal for int() with base 10: ''
+    """
+    try:
+        m = int(str(start_date)[5:7])
+        return m if 1 <= m <= 12 else 7
+    except (ValueError, IndexError, TypeError):
+        return 7
+
+
 def _altitude_factor(elev_m: float) -> float:
     """海拔越高，可承受的日里程越低。"""
     if elev_m < 2000:
@@ -110,7 +130,7 @@ def split_long_legs(
             if len(sub) < 2:
                 continue
             is_last = k == n - 1
-            ele = int(sub[-1][2]) if sub[-1][2] is not None else 0
+            ele = _safe_int(sub[-1][2])
             if is_last:
                 name = leg.end.name
             else:
@@ -151,7 +171,7 @@ def split_long_legs(
 def daily_target(brief: TripBrief) -> float:
     base = brief.rider.base_daily_km
     factor = LUGGAGE_FACTOR.get(brief.luggage, 0.9)
-    month = int(brief.start_date[5:7])
+    month = _safe_month(getattr(brief, 'start_date', ''))
     season = SEASON_FACTOR.get(month, 1.0)
     target = base * factor * season
     if brief.daily_km_pref:
@@ -281,7 +301,14 @@ def plan_itinerary(
     warnings: List[str] = []
 
     days: List[DayPlan] = []
-    cal = date.fromisoformat(brief.start_date)
+    try:
+        start_day = date.fromisoformat(str(brief.start_date))
+    except (ValueError, TypeError):
+        # agent 交接过来的行程可能没有日期，退回今天并记进假设
+        start_day = date.today()
+        brief.start_date = start_day.isoformat()
+        brief.assumptions.append(f"未给出出发日期，按今天 {brief.start_date} 计算")
+    cal = start_day
     riding_count = 0
     acclimatized = False
     i = 0
@@ -457,7 +484,7 @@ def plan_itinerary(
                 )
                 cal += timedelta(days=1)
 
-    month = int(brief.start_date[5:7])
+    month = _safe_month(getattr(brief, 'start_date', ''))
     mid_lat = waypoints[len(waypoints) // 2].lat
 
     total_km = round(sum(d.km for d in days), 1)
