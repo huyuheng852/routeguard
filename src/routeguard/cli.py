@@ -219,6 +219,13 @@ def cmd_agent(args) -> int:
     return 0
 
 
+def _gpx_filename(args) -> str:
+    """直线近似模式下文件名要自曝身份，防止误拖进码表。"""
+    if getattr(args, "router", "auto") == "none":
+        return "route_直线近似_不可导航.gpx"
+    return "route.gpx"
+
+
 def _make_finder(args, settings):
     """优先用国内免费数据源（高德/天地图），没有 key 时退回 OSM。"""
     from .sources.lodging import OverpassLodgingFinder
@@ -232,21 +239,20 @@ def _make_finder(args, settings):
         if provider in ("amap", "tianditu"):
             print(f"[提示] 未配置 {provider} 的 key，改用 Photon（无需 key，OSM 数据）")
 
-    # 没有商业 key 时用 Photon：比 Overpass 快得多
-    from .sources.elevation import PhotonLodgingFinder
-
-    photon = PhotonLodgingFinder(cache_dir=settings.cache_dir / "lodging")
-    print("住宿数据源：Photon（OSM，无需 key）")
-    return photon
-
-
-def _overpass_finder(settings):
+    # 没有商业 key：Photon 优先（快），查不到再退 Overpass（全但慢）
+    from .sources.elevation import ChainFinder, PhotonLodgingFinder
     from .sources.lodging import OverpassLodgingFinder
 
-    return OverpassLodgingFinder(
-        url=settings.overpass_url,
-        timeout=min(15, settings.overpass_timeout),
-        cache_dir=settings.cache_dir / "lodging",
+    print("住宿数据源：Photon（无需 key）→ Overpass 兜底")
+    return ChainFinder(
+        [
+            PhotonLodgingFinder(cache_dir=settings.cache_dir / "lodging"),
+            OverpassLodgingFinder(
+                url=settings.overpass_url,
+                timeout=min(15, settings.overpass_timeout),
+                cache_dir=settings.cache_dir / "lodging",
+            ),
+        ]
     )
 
 
@@ -269,7 +275,7 @@ def _finish_from_legs(args, brief, waypoints, legs, settings) -> int:
     out.mkdir(parents=True, exist_ok=True)
     (out / "plan.md").write_text(render_itinerary(it), encoding="utf-8")
     (out / "plan.html").write_text(render_html(it), encoding="utf-8")
-    write_gpx(out / "route.gpx", it, waypoints, it.legs)
+    write_gpx(out / _gpx_filename(args), it, waypoints, it.legs)
     if not getattr(args, "no_daily_gpx", False):
         daily = write_daily_gpx(out / "daily", it, it.legs)
         print(f"逐日 GPX：{out / 'daily'}（{len(daily)} 个文件）")
@@ -320,7 +326,7 @@ def _plan_direct(args, brief, places, settings, geocoder) -> int:
     out.mkdir(parents=True, exist_ok=True)
     (out / "plan.md").write_text(render_itinerary(it), encoding="utf-8")
     (out / "plan.html").write_text(render_html(it), encoding="utf-8")
-    write_gpx(out / "route.gpx", it, waypoints, it.legs)
+    write_gpx(out / _gpx_filename(args), it, waypoints, it.legs)
     if not getattr(args, "no_daily_gpx", False):
         daily = write_daily_gpx(out / "daily", it, it.legs)
         print(f"逐日 GPX：{out / 'daily'}（{len(daily)} 个文件）")
@@ -711,6 +717,26 @@ def cmd_selftest(args) -> int:
     return 0
 
 
+def cmd_clean(args) -> int:
+    """清理缓存（默认只删 .cache，--all 连 out 一起删）。"""
+    import shutil
+
+    settings = Settings.load()
+    targets = [settings.cache_dir]
+    if getattr(args, "all", False):
+        targets.append(Path.cwd() / "out")
+
+    for path in targets:
+        if not path.exists():
+            print(f"跳过（不存在）：{path}")
+            continue
+        files = sum(1 for _ in path.rglob("*") if _.is_file())
+        size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / 1e6
+        shutil.rmtree(path, ignore_errors=True)
+        print(f"已删除 {path}（{files} 个文件，{size:.1f} MB）")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser("routeguard", description="可核验的骑行路书")
     parser.add_argument(
@@ -794,6 +820,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_ag.add_argument("--spacing", type=float, default=120.0)
     p_ag.add_argument("--no-daily-gpx", action="store_true")
     p_ag.add_argument("--out", default=str(default_out("plan")))
+    p_clean = sub.add_parser("clean", help="清理缓存")
+    p_clean.add_argument("--all", action="store_true", help="连 out/ 一起删")
+
     p_cfg = sub.add_parser("config", help="查看识别到的模型配置")
     p_cfg.add_argument("--check", action="store_true", help="发一次真实请求验证 key")
     return parser
@@ -819,6 +848,8 @@ def main(argv=None) -> int:
     if args.cmd == "web":
         from .web import serve
         return serve(port=args.port, open_browser=not args.no_browser)
+    if args.cmd == "clean":
+        return cmd_clean(args)
     if args.cmd == "config":
         return cmd_config(args)
     if args.cmd == "plan":

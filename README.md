@@ -276,7 +276,7 @@ routeguard/
 │  ├─ consensus.py         证据门禁 + 安全单调裁决
 │  ├─ gpx_export.py        GPX 导出（全程 + 逐日）
 │  └─ plan_report.py       行程渲染
-├─ tests/test_core.py      36 条测试
+├─ tests/test_core.py      40 条测试
 ├─ docs/技术方案.md         研究设计（问题、方法、实验）
 └─ .github/workflows/      CI（Python 3.10 / 3.11 / 3.12）
 ```
@@ -289,7 +289,7 @@ routeguard/
 python tests\test_core.py
 ```
 
-覆盖：遮荫几何、证据门禁、安全单调裁决、断言核验、OSM 降级、
+40 条测试覆盖：遮荫几何、证据门禁、安全单调裁决、断言核验、OSM 降级、
 路线生成、落脚点选级、GPX 导出、多 agent 失败隔离。
 
 ---

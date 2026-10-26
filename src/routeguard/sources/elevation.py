@@ -206,3 +206,25 @@ class PhotonLodgingFinder:
                 json.dumps([i.to_dict() for i in out], ensure_ascii=False), encoding="utf-8"
             )
         return out
+
+
+class ChainFinder:
+    """依次尝试多个住宿检索器；前一个查不到再退下一个。"""
+
+    def __init__(self, finders, name: str = "chain") -> None:
+        self.finders = list(finders)
+        self.name = name
+        self.last_error = ""
+
+    def find(self, lat: float, lon: float):
+        errors = []
+        for f in self.finders:
+            try:
+                items = f.find(lat, lon)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{type(exc).__name__}: {exc}")
+                continue
+            if items:
+                return items
+        self.last_error = "；".join(errors) if errors else "所有数据源都没查到"
+        return []

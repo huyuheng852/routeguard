@@ -671,6 +671,35 @@ def test_router_cache_key_includes_provider():
     assert r1.signature != r2.signature
 
 
+def test_web_serves_index_and_job_api():
+    """网页入口要有自动化保护：首页能出、未知任务返回 404。"""
+    import json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+
+    from routeguard import web
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        html = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5).read().decode()
+        assert "RouteGuard" in html
+        assert "开始规划" in html
+        assert "子 Agent" in html
+
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/api/job/nope", timeout=5)
+            raise AssertionError("未知任务应返回 404")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 404
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 if __name__ == "__main__":
     passed = 0
     failed = []
