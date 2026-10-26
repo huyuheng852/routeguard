@@ -86,7 +86,7 @@ python -m routeguard selftest
 ### 方式 B：从源码安装（推荐开发者）
 
 ```powershell
-git clone https://github.com/<你的用户名>/routeguard.git
+git clone https://github.com/huyuheng852/routeguard.git
 cd routeguard
 pip install -e .
 routeguard selftest
@@ -411,10 +411,11 @@ routeguard/
 │  ├─ consensus.py    证据门禁 + 安全单调裁决
 │  ├─ gpx_export.py   GPX 导出（全程 + 逐日）
 │  ├─ plan_report.py  行程渲染
+│  ├─ paths.py        包内数据与输出路径
 │  └─ cli.py          命令行入口
 ├─ tests/test_core.py 29 条测试
 ├─ docs/技术方案.md   研究设计（问题、方法、实验）
-├─ data/sample/       示范 GPX 与"故意写砸"的路书
+├─ src/routeguard/data/  示范 GPX 与"故意写砸"的路书（随包分发）
 └─ .github/workflows/  CI
 ```
 
