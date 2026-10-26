@@ -220,7 +220,7 @@ class LodgingAgent(Agent):
 
 class SupplyAgent(Agent):
     name = "supply"
-    description = "沿途补给点抽样（OSM）"
+    description = "沿途 POI 抽样（当前复用住宿检索器，统计的是住宿点）"
 
     def __init__(self, finder=None, sample_points: int = 3):
         self.finder = finder
@@ -249,8 +249,8 @@ class SupplyAgent(Agent):
         return AgentReport(
             self.name,
             status,
-            f"{len(hits)} 个抽样点平均 {avg:.1f} 个补给点",
-            ["OSM POI 覆盖不全，查不到不等于没有"] if avg < 1 else [],
+            f"{len(hits)} 个抽样点平均 {avg:.1f} 个 POI（住宿口径）",
+            ["注意：当前统计的是住宿 POI，不是便利店/补给点；要真实补给数据需接入 POI 服务"] if avg < 1 else [],
         )
 
 

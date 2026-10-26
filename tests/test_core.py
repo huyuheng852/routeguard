@@ -590,6 +590,87 @@ def test_orchestrator_degrades_and_skips_dependents():
     assert reports[1].status == SKIPPED
 
 
+def test_tool_registry_and_skills():
+    """工具注册表要能报错、技能库要能按关键词命中、记忆要能持久化。"""
+    from routeguard.harness import Memory, SkillLibrary, Tool, ToolRegistry
+
+    reg = ToolRegistry()
+    reg.register(Tool("echo", "回显", {"x": "str"}, lambda x: x))
+    assert reg.call("echo", x="hi")["ok"] is True
+    bad = reg.call("nope")
+    assert bad["ok"] is False and "没有名为" in bad["error"]
+    assert "echo" in reg.describe()
+
+    lib = SkillLibrary()
+    names = [s.name for s in lib.skills]
+    assert "coastal-route" in names and "hotel-first" in names
+    assert any(s.name == "coastal-route" for s in lib.match("我想沿海骑"))
+    assert lib.prompt_for("沿海") != ""
+
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp()) / "m.json"
+    mem = Memory(tmp)
+    mem.remember("ftp", 250)
+    assert Memory(tmp).recall("ftp") == 250
+
+
+def test_agent_without_llm_degrades():
+    """没有模型时不能崩，要给出明确原因。"""
+    from routeguard.harness import run_agent
+
+    trace = run_agent("随便", llm=None)
+    assert trace.final is None
+    assert trace.steps and "未配置模型" in trace.steps[0]["error"]
+
+
+class _FakeProvider:
+    def __init__(self, name, fail=False, km=100.0):
+        self.name = name
+        self.profile = "p"
+        self.fail = fail
+        self.km = km
+        self.calls = 0
+
+    def route(self, a, b):
+        self.calls += 1
+        if self.fail:
+            raise TimeoutError("boom")
+        from routeguard.router import LegRoute
+
+        return LegRoute(distance_km=self.km, climb_m=1,
+                        points=[(a.lat, a.lon, 0), (b.lat, b.lon, 0)],
+                        provider=self.name)
+
+
+def test_router_fallback_and_breaker():
+    """首选失败要换下一个；连续失败要熔断，别每段都等超时。"""
+    from routeguard.corridor import CORRIDORS
+    from routeguard.router import Router
+
+    a, b = CORRIDORS["central"][0], CORRIDORS["central"][1]
+    bad, good = _FakeProvider("bad", fail=True), _FakeProvider("good")
+    r = Router([bad, good], delay_s=0)
+    assert r.route(a, b).provider == "good"
+
+    bad2 = _FakeProvider("bad2", fail=True)
+    r2 = Router([bad2], delay_s=0, max_consecutive_failures=2)
+    first = r2.route(a, b)
+    assert first.provider == "straight-fallback"
+    r2.route(b, a)
+    r2.route(a, b)
+    assert "bad2" in r2.disabled
+
+
+def test_router_cache_key_includes_provider():
+    """换引擎必须换缓存，否则会复用旧结果（曾导致 1708km 被反复复现）。"""
+    from routeguard.router import Router
+
+    r1 = Router([_FakeProvider("a"), _FakeProvider("b")], delay_s=0)
+    r2 = Router([_FakeProvider("c")], delay_s=0)
+    assert r1.signature != r2.signature
+
+
 if __name__ == "__main__":
     passed = 0
     failed = []

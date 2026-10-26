@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "routeguard"
-version = "1.1.0"
+version = "1.1.1"
 description = "可核验的骑行路书：断言级证据绑定与三态核验"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,6 +28,7 @@ routeguard = [
     "data/sample/*.gpx",
     "data/sample/*.md",
     "data/fixtures/*.json",
+    "skills/*.md",
 ]
 
 [tool.pytest.ini_options]
