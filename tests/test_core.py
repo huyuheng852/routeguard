@@ -448,6 +448,71 @@ def test_daily_gpx_split():
         assert total > it.total_km * 0.6, (total, it.total_km)
 
 
+def test_via_split_and_coordinates():
+    """--via 的切分与坐标解析：地名用逗号，坐标用分号；经度纬度顺序自适应。"""
+    from routeguard.geocode import NominatimGeocoder, split_via
+
+    assert split_via("海口,文昌,万宁") == ["海口", "文昌", "万宁"]
+    assert split_via("110.32,20.03;110.10,19.52") == ["110.32,20.03", "110.10,19.52"]
+
+    g = NominatimGeocoder(cache_dir=None)
+    for q in ("110.32,20.03", "20.03,110.32", "110.32，20.03"):
+        p = g.lookup(q)
+        assert p is not None, q
+        assert abs(p.lat - 20.03) < 1e-6 and abs(p.lon - 110.32) < 1e-6, (q, p)
+
+    labeled = g.lookup("海口@20.03,110.32")
+    assert labeled is not None and labeled.name == "海口"
+    assert labeled.addresstype == "coordinate"
+
+
+def test_custom_corridor_plans_loop():
+    """自定义途经点：环线首尾同名也应闭合，且能排出多日行程。"""
+    from routeguard.brief import TripBrief
+    from routeguard.corridor import waypoints_from_places
+    from routeguard.geocode import Place
+    from routeguard.planner import plan_itinerary
+
+    places = [
+        Place("海口", 20.03, 110.32),
+        Place("文昌", 19.61, 110.75),
+        Place("万宁", 18.80, 110.39),
+        Place("三亚", 18.25, 109.51),
+        Place("海口", 20.03, 110.32),
+    ]
+    wps = waypoints_from_places(places)
+    brief = TripBrief(raw_text="", origin="海口", destination="海口", start_date="2027-01-01")
+    it = plan_itinerary(brief, wps)
+
+    assert it.days, "应排出至少一天行程"
+    assert abs(it.total_km - 500) < 200, it.total_km  # 直线估算法下量级合理
+    assert it.days[-1].overnight == "海口"
+
+
+def test_routegen_densifies_between_anchors():
+    """任意 A→B 应自动补出中间航点，而不是只有首尾两个点。"""
+    from routeguard.geocode import Place
+    from routeguard.routegen import generate_waypoints, generated_summary
+
+    a, b = Place("海口", 20.03, 110.32), Place("三亚", 18.25, 109.51)
+    wps = generate_waypoints([a, b], spacing_km=60)
+    assert wps[0].name == "海口" and wps[-1].name == "三亚"
+    assert len(wps) >= 3, [w.name for w in wps]
+    assert "自动采样点" in generated_summary(wps)
+
+
+def test_clarify_fills_missing_endpoints():
+    """缺起终点时应通过对话补齐，而不是直接失败。"""
+    from routeguard.brief import parse_brief
+    from routeguard.clarify import clarify_plan
+
+    brief, issues = parse_brief("2027年1月骑行海南岛")
+    answers = iter(["海口", "三亚"])
+    brief, via, notes = clarify_plan(brief, issues, ask=lambda _p: next(answers))
+    assert brief.origin == "海口" and brief.destination == "三亚"
+    assert notes, "澄清过程应留下记录"
+
+
 if __name__ == "__main__":
     passed = 0
     failed = []

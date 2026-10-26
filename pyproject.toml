@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "routeguard"
-version = "0.3.1"
+version = "0.5.0"
 description = "可核验的骑行路书：断言级证据绑定与三态核验"
 readme = "README.md"
 requires-python = ">=3.10"

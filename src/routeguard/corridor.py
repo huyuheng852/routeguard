@@ -188,6 +188,8 @@ CORRIDORS = {"central": CENTRAL, "historic": HISTORIC}
 CORRIDOR_LABELS = {
     "central": "中部纵贯线（备选，难度低）",
     "historic": "历史长征线（中央红军真实路线）",
+    "custom": "自定义路线（用户指定途经点）",
+    "generated": "自动生成路线（起终点自动解析）",
 }
 
 
@@ -199,6 +201,30 @@ def _leg_climb(a: Waypoint, b: Waypoint, km: float) -> int:
         gain = max(0, b.elev_m - a.elev_m)
         return int(gain + km * TERRAIN_K.get(b.terrain, 8))
     return 0
+
+
+def waypoints_from_places(places: Sequence[object]) -> List[Waypoint]:
+    """把地名解析结果转成航点序列（自定义路线用）。
+
+    住宿等级：OSM 的 addresstype 只作参考，统一按"县城级"处理——
+    用户既然把这里选为途经点，就默认当地能落脚；报告里会提示逐个确认。
+    海拔先置 0，路由完成后由真实几何回填。
+    """
+    out: List[Waypoint] = []
+    for p in places:
+        out.append(
+            Waypoint(
+                name=getattr(p, "name", "?"),
+                lat=float(getattr(p, "lat")),
+                lon=float(getattr(p, "lon")),
+                service="county",
+                climb_from_prev_m=0,
+                note="自定义途经点",
+                elev_m=0,
+                terrain="rolling",
+            )
+        )
+    return out
 
 
 def build_legs(waypoints: Sequence[Waypoint]) -> List[Leg]:

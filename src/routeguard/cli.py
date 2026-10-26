@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -125,16 +126,39 @@ def cmd_analyze(args) -> int:
 
 def cmd_plan(args) -> int:
     from .brief import parse_brief
-    from .corridor import CORRIDORS
+    from .clarify import clarify_plan, non_interactive_hint
+    from .corridor import CORRIDORS, waypoints_from_places
+    from .geocode import NominatimGeocoder, split_via
     from .plan_report import print_console, render_html, render_markdown
     from .planner import plan_itinerary
+    from .routegen import generate_waypoints, generated_summary
 
     brief, issues = parse_brief(args.text)
-    if issues:
+
+    # 信息不足时先问人（交互终端才问，管道里不阻塞）
+    interactive = sys.stdin.isatty() and not getattr(args, "no_ask", False)
+    ask = input if interactive else None
+    brief, via_from_dialog, notes = clarify_plan(brief, issues, ask)
+    via = getattr(args, "via", None) or via_from_dialog
+
+    via_names = split_via(via) if via else []
+    if via_names:
+        brief.origin = brief.origin or via_names[0]
+        brief.destination = brief.destination or via_names[-1]
+
+    blocking = [i for i in issues if "起点和终点" not in i]
+    if not brief.origin or not brief.destination:
+        blocking.append("还缺起点或终点")
+    if blocking:
         print("无法开始规划：")
-        for i in issues:
+        for i in blocking:
             print(f"  · {i}")
+        for tip in non_interactive_hint(brief, issues):
+            print(f"  → {tip}")
         return 2
+
+    for n in notes:
+        print(f"[澄清] {n}")
 
     if args.corridor:
         brief.corridor = args.corridor
@@ -143,14 +167,64 @@ def cmd_plan(args) -> int:
     if args.daily:
         brief.daily_km_pref = args.daily
 
-    waypoints = CORRIDORS[brief.corridor]
-    names = {w.name for w in waypoints}
-    if brief.origin not in names or brief.destination not in names:
-        print("暂不支持任意起终点。")
-        print(f"  当前内置走廊：{' → '.join(w.name for w in waypoints)}")
-        print(f"  你的请求：{brief.origin} → {brief.destination}")
-        print("  可用 --corridor historic 切换为历史路线走廊。")
+    loop_requested = brief.origin == brief.destination and brief.destination != ""
+    builtin = CORRIDORS.get(brief.corridor, [])
+    builtin_names = {w.name for w in builtin}
+    use_builtin = (
+        not via
+        and not args.corridor
+        and brief.origin in builtin_names
+        and brief.destination in builtin_names
+    )
+
+    if use_builtin:
+        waypoints = builtin
+        print(f"使用内置走廊：{brief.corridor}（人工核对过海拔与住宿）")
+    elif loop_requested and not via_names:
+        print("起点和终点相同，但没给途经点——环线可以是任意形状，我猜不出来。")
+        print('  请用 --via 指明方向，例如：')
+        print('  --via "海口,文昌,万宁,三亚,五指山,琼中"')
         return 2
+    else:
+        settings = Settings.load()
+        geocoder = NominatimGeocoder(cache_dir=settings.cache_dir / "geocode")
+        queries = list(via_names) if via_names else [brief.origin, brief.destination]
+
+        def _bare(q: str) -> str:
+            return q.split("@")[0].strip()
+
+        # 途经点里已包含起点/终点时别再塞一遍，否则会拿裸地名去联网重查
+        if _bare(queries[0]) != _bare(brief.origin):
+            queries.insert(0, brief.origin)
+        if _bare(queries[-1]) != _bare(brief.destination):
+            queries.append(brief.destination)
+
+        deduped: list[str] = []
+        for q in queries:
+            if q and (not deduped or deduped[-1] != q):
+                deduped.append(q)
+
+        print(f"正在解析 {len(deduped)} 个地名（OSM Nominatim，首次较慢）…")
+        places, errors = geocoder.lookup_many(deduped)
+        if errors:
+            print("以下地名没能定位：")
+            for e in errors:
+                print(f"  · {e}")
+            print('改用坐标写法：--via "海口@20.03,110.32;三亚@18.25,109.51"')
+            return 2
+        for p in places:
+            print(f"  {p.name:<14} {p.lat:.4f}, {p.lon:.4f}")
+
+        if len(places) >= 2:
+            waypoints = generate_waypoints(
+                places, spacing_km=float(getattr(args, "spacing", 120) or 120)
+            )
+        else:
+            waypoints = waypoints_from_places(places)
+        brief.origin = places[0].name
+        brief.destination = places[-1].name
+        brief.corridor = "generated"
+        print(f"自动生成 {len(waypoints)} 个航点（间距约 {getattr(args, 'spacing', 120)} km）")
 
     legs = None
     router_mode = getattr(args, "router", "auto")
@@ -181,6 +255,9 @@ def cmd_plan(args) -> int:
         )
 
     it = plan_itinerary(brief, waypoints, legs, lodging_finder=lodging_finder)
+    auto_note = generated_summary(waypoints)
+    if auto_note:
+        it.warnings.insert(0, auto_note)
     print_console(it)
     if brief.warnings:
         print("提示：")
@@ -326,8 +403,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan = sub.add_parser("plan", help="从一句自然语言生成多日骑行规划")
     p_plan.add_argument("--text", required=True, help="例如：FTP 250W，体重 70kg，2027 年 6 月从瑞金到延安")
     p_plan.add_argument("--corridor", default=None, choices=["central", "historic"])
+    p_plan.add_argument(
+        "--via",
+        default=None,
+        help='自定义途经点，逗号分隔，如 "海口,文昌,万宁,三亚"；也可写坐标 "110.32,20.03"',
+    )
     p_plan.add_argument("--start", default=None, help="覆盖出发日期 YYYY-MM-DD")
     p_plan.add_argument("--daily", type=float, default=None, help="覆盖每日目标里程")
+    p_plan.add_argument("--spacing", type=float, default=120.0, help="自定义路线的采样间距（km）")
+    p_plan.add_argument("--no-ask", action="store_true", help="不进入澄清对话，缺信息直接报错")
     p_plan.add_argument("--out", default=str(default_out("plan")))
     p_plan.add_argument("--gpx-out", default=None, help="GPX 输出路径（默认 <out>/route.gpx）")
     p_plan.add_argument(

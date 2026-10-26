@@ -23,7 +23,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -241,16 +241,33 @@ def build_routed_legs(
     router: Router,
     verbose: bool = True,
 ) -> List[Leg]:
-    """用真实路由替换走廊直线，返回带几何的 Leg 列表。"""
+    """用真实路由替换走廊直线，返回带几何的 Leg 列表。
+
+    自定义路线的航点海拔未知（置 0），这里用真实几何的起终点高程回填，
+    否则海拔降额逻辑会失效。
+    """
     base = build_legs(waypoints)
     legs: List[Leg] = []
+    prev_end: Optional[Waypoint] = None
     for idx, leg in enumerate(base):
         route = router.route(leg.start, leg.end)
         climb = route.climb_m if route.climb_m is not None else leg.climb_m
+
+        start = leg.start
+        if prev_end is not None and prev_end.name == start.name:
+            start = prev_end  # 与上一段的终点保持同一海拔
+        elif start.elev_m == 0 and route.points and route.points[0][2] is not None:
+            start = replace(start, elev_m=int(route.points[0][2]))
+
+        end = leg.end
+        if end.elev_m == 0 and route.points and route.points[-1][2] is not None:
+            end = replace(end, elev_m=int(route.points[-1][2]))
+        prev_end = end
+
         legs.append(
             Leg(
-                start=leg.start,
-                end=leg.end,
+                start=start,
+                end=end,
                 km=route.distance_km,
                 climb_m=climb,
                 points=route.points,

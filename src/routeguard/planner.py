@@ -168,13 +168,22 @@ def _season_advisory(lat: float, month: int) -> str:
 
 
 def _region(lat: float, elev: int = 0) -> str:
+    """按纬度与海拔粗略划分气候区。
+
+    早期版本按长征线的城市写死，导致海南被标成"江西—湖南"。
+    现在改为纯纬度分带，任何航线都能落到合理区间。
+    """
     if elev >= 3000:
-        return "高原段（川西—甘南）"
+        return "高原段（海拔 3000m 以上）"
+    if lat < 21.0:
+        return "热带段（海南—雷州半岛）"
+    if lat < 25.0:
+        return "华南段（两广—闽南）"
     if lat < 29.5:
-        return "南段（江西—湖南—广西—贵州）"
+        return "中南段（湘赣—桂北—黔东南）"
     if lat < 34.2:
-        return "中段（云南—四川盆地—甘肃）"
-    return "北段（关中—陕北）"
+        return "中段（四川盆地—陕南—陇南）"
+    return "北段（关中—陕北—陇东）"
 
 
 def _region_advice(region: str, month: int) -> str:
@@ -186,7 +195,20 @@ def _region_advice(region: str, month: int) -> str:
             if summer
             else "气温低、可能积雪结冰，需防滑与保暖装备"
         )
-    if region.startswith("南段"):
+    if region.startswith("热带"):
+        return (
+            "11:00–15:00 是湿热高峰，尽量早晚骑；紫外线强，长袖+防晒霜；"
+            "台风季关注预警，单日控制在 80–100km"
+            if summer
+            else "1–2 月是最佳季节，但仍有台风尾巴与强降雨，随身雨衣；正午紫外线依旧强"
+        )
+    if region.startswith("华南"):
+        return (
+            "6:00 出发、正午避暑；前汛期暴雨集中，注意城市内涝与山路塌方"
+            if summer
+            else "早晚骑行，湿冷要注意保暖；雨后路面湿滑"
+        )
+    if region.startswith("中南"):
         return (
             "6:00 出发、11–15 点避暑；6 月正值梅雨，随身雨衣并每天看暴雨预警；"
             "湿度大，注意电解质与刹车防滑"
