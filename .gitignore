@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# 运行产物
+out/
+.cache/
+
+# 本地配置与密钥
+.env
+.env.local
+
+# 数据（轨迹含个人位置信息，不入库）
+*.gpx
+!data/sample/*.gpx
