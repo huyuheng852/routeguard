@@ -1,6 +1,6 @@
 # RouteGuard · 可核验的骑行路书
 
-[![tests](https://img.shields.io/badge/tests-29%20passed-brightgreen)](#运行测试)
+[![tests](https://github.com/huyuheng852/routeguard/actions/workflows/ci.yml/badge.svg)](https://github.com/huyuheng852/routeguard/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](#环境要求)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![deps](https://img.shields.io/badge/dependencies-stdlib%20only-success)](#环境要求)
@@ -37,7 +37,7 @@ RouteGuard 做两件事：
 
 ```powershell
 # 1) 进目录
-cd routeguard
+cd routeguard          # 解压 release 包时改为 routeguard-v0.3.0
 
 # 2) 让 Python 找到包（Windows PowerShell）
 $env:PYTHONPATH = "$PWD\src"

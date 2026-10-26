@@ -69,5 +69,5 @@
 
 ---
 
-[Unreleased]: https://github.com/<你的用户名>/routeguard/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/<你的用户名>/routeguard/releases/tag/v0.3.0
+[Unreleased]: https://github.com/huyuheng852/routeguard/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/huyuheng852/routeguard/releases/tag/v0.3.0
