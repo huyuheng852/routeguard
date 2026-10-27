@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "routeguard"
-version = "1.2.0"
-description = "可核验的骑行路书：断言级证据绑定与三态核验"
+version = "1.2.1"
+description = "可核验的骑行路书：断言级证据核验 + 真实路网路线规划"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
